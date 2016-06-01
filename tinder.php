@@ -1,24 +1,29 @@
 <?php
 function _like($uid = '') {
   if ($result = _request('/like/' . $uid)) {
-// do some magic here to determine if success?
-var_dump($result);
+    // it'll be true/false based on if there is a match, but the key only exists if the request succeeded.
+    if (!isset($result['rate_limited_until'])) {
+      return TRUE;
+    }
   }
   return FALSE;
 }
 
 function _superlike($uid = '') {
-  if ($result = _request('/like/' . $uid . '/super')) {
-// do some magic here to determine if success?
-var_dump($result);
+  if ($result = _request('/like/' . $uid . '/super', TRUE)) {
+    // it'll be true/false based on if there is a match, but the key only exists if the request succeeded.
+    if (!isset($result['limit_exceeded'])) {
+      return TRUE;
+    }
   }
   return FALSE;
 }
 
 function _pass($uid = '') {
   if ($result = _request('/pass/' . $uid)) {
-// do some magic here to determine if success?
-var_dump($result);
+    if (isset($result['status']) && $result['status'] == 200) {
+      return TRUE;
+    }
   }
   return FALSE;
 }
