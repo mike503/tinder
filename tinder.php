@@ -1,57 +1,51 @@
 <?php
-function _like($uid) {
+function _like($uid = '') {
   if ($result = _request('/like/' . $uid)) {
+// do some magic here to determine if success?
 var_dump($result);
-    json_decode($result);
-
   }
+  return FALSE;
 }
 
-function _superlike($uid) {
+function _superlike($uid = '') {
   if ($result = _request('/like/' . $uid . '/super')) {
+// do some magic here to determine if success?
 var_dump($result);
   }
+  return FALSE;
 }
 
-function _user($uid) {
-  if ($result = _request('/user/' . $uid)) {
-var_dump($result);
-  }
-}
-
-function _pass($uid) {
+function _pass($uid = '') {
   if ($result = _request('/pass/' . $uid)) {
+// do some magic here to determine if success?
 var_dump($result);
   }
+  return FALSE;
+}
+
+function _user($uid = '') {
+  return _request('/user/' . $uid);
 }
 
 // set location
 function _ping($lat = '', $lon = '') {
-  if ($result = _request('/user/ping', TRUE, array('lat' => $lat, 'lon' => $lon))) {
-var_dump($result);
-  }
-  return FALSE;
+  return _request('/user/ping', TRUE, array('lat' => $lat, 'lon' => $lon));
 }
 
 // get recommendations
 function _recs() {
-  if ($result = _request('/user/recs')) {
-    if ($results = json_decode($result, TRUE)) {
-      if ($results['status'] == 200) {
-        return $results['results'];
-      }
-    }
-  }
-  return FALSE;
+  return _request('/user/recs');
 }
 
-// set profile match preferences (right?)
+// set profile match preferences
 function _profile($filters = array()) {
+// trying to force these for the moment...
   $filters['distance_filter'] = 50;
   $filters['gender_filter'] = 1;
   $filters['age_filter_min'] = 18;
   $filters['age_filter_max'] = 37;
   $filters['discoverable'] = 1;
+//
   if ($result = _request('/profile', TRUE, $filters)) {
 var_dump($result);
   }
@@ -59,18 +53,27 @@ var_dump($result);
 }
 
 function _token() {
+  $token = FALSE;
   $q = core_db_query("SELECT cache_value FROM cache WHERE cache_key='token'");  
   if (core_db_numrows($q) == 1) {
     list($token) = core_db_rows($q);
-    core_db_free($q);
-    return $token;
   }
   core_db_free($q);
-  if ($token = _login()) {
+  if (!$token) {
+    $token = _login();
+  }
+  if ($token) {
     return $token;
   }
   echo "FATAL: _token(): no token could be found" . PHP_EOL;
   exit(255);
+}
+
+// this might create a loop; need to be careful.
+function _retoken($uri = '', $post = FALSE, $params = array()) {
+  core_db_query("DELETE FROM cache WHERE cache_key='token'");
+  _login();
+  return _request($uri, $post, $params);
 }
 
 function _request($uri = '', $post = FALSE, $params = array()) {
@@ -89,15 +92,24 @@ function _request($uri = '', $post = FALSE, $params = array()) {
     curl_setopt($ch, CURLOPT_POST, TRUE);
     curl_setopt($ch, CURLOPT_POSTFIELDS, $params);
   }
-  curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);                                                                      
+  curl_setopt($ch, CURLOPT_RETURNTRANSFER, TRUE);
   curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-  $result = curl_exec($ch);
+  $json = curl_exec($ch);
   $status = curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
   curl_close($ch);
-  if ($status == 200) {
-    return $result;
+  if ($status == 401) {
+    echo "NOTICE: request received HTTP 401, probably due to an expired token" . PHP_EOL;
+    return _retoken($uri, $post, $params);
   }
-  echo "ERROR: _request(): got HTTP $status" . PHP_EOL;
+  if ($result = json_decode($json, TRUE)) {
+    // might check for $result['status']
+    if (isset($result['statusCode']) && $result['statusCode'] == 404) {
+      echo "NOTICE: request received custom 404, probably due to an expired token" . PHP_EOL;
+      return _retoken($uri, $post, $params);
+    }
+    return isset($result['results']) ? $result['results'] : $result;
+  }
+  echo "ERROR: _request(): got HTTP $status from $uri" . PHP_EOL;
   return FALSE;
 }
 
@@ -108,11 +120,9 @@ function _login() {
     'locale' => $config['locale'],
   );
   if ($result = _request('/auth', TRUE, $params)) {
-    if ($json = json_decode($result, TRUE)) {
-      if (isset($json['token'])) {
-        core_db_query("REPLACE INTO cache (cache_key, cache_value) VALUES(:key, :value)", array(':key' => 'token', ':value' => $json['token']));
-        return $json['token'];
-      }
+    if (isset($result['token'])) {
+      core_db_query("REPLACE INTO cache (cache_key, cache_value) VALUES (:key, :value)", array(':key' => 'token', ':value' => $result['token']));
+      return $result['token'];
     }
   }
   return FALSE;
